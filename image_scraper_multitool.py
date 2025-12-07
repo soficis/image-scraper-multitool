@@ -484,7 +484,9 @@ def scrape_with_google(
 
     # Ensure chromedriver exists or download it
     try:
-        chromedriver_path = Path(ChromeDriverManager().install())
+        # Use default cache (usually ~/.wdm) as path arg is not supported in v4.x
+        manager = ChromeDriverManager()
+        chromedriver_path = Path(manager.install())
     except Exception as error:
         raise RuntimeError(f"Failed to install ChromeDriver: {error}") from error
 
@@ -1140,10 +1142,10 @@ class GenericPageScraper:
             from selenium import webdriver as selenium_webdriver
             from selenium.webdriver.chrome.service import Service as ChromeService
             from selenium.webdriver.common.by import By
-            from webdriver_manager.chrome import ChromeDriverManager
             
             try:
-                chromedriver_path = Path(ChromeDriverManager().install())
+                manager = ChromeDriverManager()
+                chromedriver_path = Path(manager.install())
             except Exception as e:
                 return 0, 0, [f"Failed to install ChromeDriver: {e}"]
 

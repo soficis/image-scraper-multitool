@@ -18,6 +18,7 @@ dist/
 
 # OS files
 Thumbs.db
+webdriver/
 desktop.ini
 
 # Downloads and photos
