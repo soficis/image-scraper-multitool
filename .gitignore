@@ -1,0 +1,33 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+.venv/
+venv/
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+
+# IDEs
+.vscode/
+.idea/
+
+# OS files
+Thumbs.db
+desktop.ini
+
+# Downloads and photos
+downloads/
+
+# Local webdriver artifacts
+webdriver/*.zip
+
+# Debug files and dumps
+*.html
+debug_*.txt
+*_analysis*.txt
+google_*.txt
