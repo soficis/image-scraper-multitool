@@ -25,11 +25,13 @@ A comprehensive tool for scraping images from Bing and Google Images with both a
 
 ## Project Structure
 
-- `image_scraper_gui.py` — Modern Tkinter GUI application
-- `image_scraper_multitool.py` — Command-line interface and core scraping logic
-- `webdriver/` — Local storage for ChromeDriver binaries
-- `downloads/` — Default output directory with organized subfolders
-- `requirements.txt` — Python dependencies
+- `image_scraper_gui.py` — GUI launcher entrypoint
+- `image_scraper_multitool.py` — CLI launcher entrypoint
+- `src/image_scraper/` — package with domain/app/adapters/cli/ui modules
+- `tests/` — deterministic unit tests
+- `tools/run_quality.py` — one-command format/lint/typecheck/test gate
+- `downloads/` — default output directory with organized subfolders
+- `requirements.txt` — runtime dependencies
 
 ## Installation
 
@@ -58,6 +60,12 @@ A comprehensive tool for scraping images from Bing and Google Images with both a
 
    ```bash
    pip install -r requirements.txt
+   ```
+
+4. (Optional) Install developer tooling for quality gates:
+
+   ```bash
+   pip install -r requirements-dev.txt
    ```
 
 ## Usage
@@ -113,30 +121,47 @@ python image_scraper_multitool.py "mountains" --engine google --google-min-resol
 
 ```text
 positional arguments:
-  query                 Search term to scrape images for
+  query                 Search term or URL to scrape
 
 optional arguments:
   --num-images NUM_IMAGES
                         Number of images to attempt to download per engine (default: 10)
-  --engine {bing,google}
+  --engine {bing,google,custom}
                         Specify one or more engines. Defaults to both
   --output-dir OUTPUT_DIR
                         Base directory where images should be saved (default: ./downloads)
   --keep-filenames      Keep filenames from the search results when possible
+  --convert-webp        Convert WebP images to JPG after download
+  --compression-quality COMPRESSION_QUALITY
+                        JPEG quality (1-100). 0 disables compression
+  --resize-width RESIZE_WIDTH
+                        Max output width (0 = no limit)
+  --resize-height RESIZE_HEIGHT
+                        Max output height (0 = no limit)
   --bing-timeout BING_TIMEOUT
                         Timeout in seconds for individual Bing requests (default: 15)
   --google-chromedriver GOOGLE_CHROMEDRIVER
-                        Path to the ChromeDriver binary (default: ./webdriver/chromedriver)
+                        Optional explicit path to chromedriver. If omitted, auto-download is used
   --google-show-browser
                         Run the Google scraper with a visible browser instead of headless mode
   --google-min-resolution WIDTH HEIGHT
-                        Minimum resolution accepted by the Google scraper (default: 0 0)
+                        Minimum resolution accepted by the Google scraper
   --google-max-resolution WIDTH HEIGHT
-                        Maximum resolution accepted by the Google scraper (default: 1920 1080)
+                        Maximum resolution accepted by the Google scraper (default: 0 0 = disabled)
   --google-max-missed GOOGLE_MAX_MISSED
                         Maximum number of consecutive misses before Google scraping stops (default: 10)
+  --custom-recursion-depth CUSTOM_RECURSION_DEPTH
+                        Recursion depth when --engine custom is used
   --log-level {DEBUG,INFO,WARNING,ERROR}
                         Adjust logging verbosity (default: INFO)
+```
+
+### Development Quality Gate
+
+Run all formatting, linting, type-checking, and tests with one command:
+
+```bash
+python tools/run_quality.py
 ```
 
 ## ChromeDriver Setup

@@ -1,0 +1,28 @@
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests", "tools"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "N", "W"]
+ignore = ["E501"]
+
+[tool.ruff.format]
+line-ending = "lf"
+quote-style = "double"
+
+[tool.mypy]
+python_version = "3.10"
+mypy_path = "src"
+warn_unused_ignores = true
+warn_unused_configs = true
+warn_redundant_casts = true
+strict = false
+ignore_missing_imports = true
+disable_error_code = ["import-untyped"]
+files = ["src", "tests", "image_scraper_multitool.py", "image_scraper_gui.py"]
+exclude = ["^downloads/", "^webdriver/"]

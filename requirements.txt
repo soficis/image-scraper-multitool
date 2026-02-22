@@ -2,4 +2,4 @@ requests
 beautifulsoup4
 selenium
 Pillow
-webdriver-manager
+pillow-heif
