@@ -10,9 +10,9 @@ def parse_options(argv: list[str]) -> ScrapeOptions:
     return _build_options(parser.parse_args(argv))
 
 
-def test_default_engines_are_bing_and_google() -> None:
+def test_default_engine_is_bing_only() -> None:
     options = parse_options(["kittens"])
-    assert list(options.engines) == ["bing", "google"]
+    assert list(options.engines) == ["bing"]
 
 
 def test_custom_engine_mode_builds_custom_only() -> None:

@@ -3,16 +3,23 @@
 [![Python Version](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
-A comprehensive tool for scraping images from Bing and Google Images with both a modern graphical user interface (GUI) and command-line interface (CLI). This project provides an easy-to-use solution for collecting images from multiple search engines while handling duplicates, file naming, and various configuration options.
+A comprehensive tool for scraping images from Bing, Google Images, Pexels, and Pixabay with both a modern graphical user interface (GUI) and command-line interface (CLI). This project provides an easy-to-use solution for collecting images from multiple search engines while handling duplicates, file naming, and various configuration options.
 
 > [!NOTE]
-> **Scraping Reliability**: While the Bing scraper relies on a stable legacy API and is highly reliable, the Google Images scraper uses browser automation (Selenium) which can be affected by Google's anti-bot measures and DOM changes. It is functional but may not be 100% reliable compared to the Bing scraper.
+> **Engine reliability (verified by live testing):**
+>
+> - **Bing** is the default and most reliable engine. It uses the `/images/async` endpoint (~35 unique results per query) and supports `--expand-queries` to multiply results with query variants (~100-140 unique per query, measured).
+> - **Pexels / Pixabay** are reliable API engines (up to 80 results per page, paginated) but require a free API key.
+> - **Google Images** uses browser automation (Selenium). Google's anti-bot measures frequently block headless scraping with a "sorry / unusual traffic" page — when this happens the tool reports a clear `google_blocked` error with recovery suggestions instead of silently returning nothing. Google is **not** enabled by default.
 
 ## Features
 
-- **Multi-Engine Support**: Scrape images from Bing, Google Images, or custom URLs
+- **Multi-Engine Support**: Scrape images from Bing, Google Images, Pexels, Pixabay, or custom URLs
 - **Graphical Interface**: Modern, dark-themed Tkinter GUI for easy operation
 - **Command-Line Tool**: Full CLI support for automation and scripting
+- **Engine Isolation**: One failing engine no longer aborts the others — each failure is reported per engine
+- **Query Expansion**: Optional search-variant expansion (plural, photo, wallpaper, picture) to multiply Bing results
+- **Download Hardening**: Automatic retries with backoff, per-host throttling, and file-size guards
 - **Duplicate Prevention**: Automatic tracking of downloaded URLs to avoid duplicates
 - **Flexible Naming**: Option to keep original filenames or use numbered sequences
 - **Resolution Filtering**: Set minimum and maximum image resolutions
@@ -81,7 +88,8 @@ python image_scraper_gui.py
 The interface provides:
 
 - Search query input
-- Engine selection (Bing, Google, Custom URL, or all)
+- Engine selection (Bing, Google, Pexels, Pixabay, Custom URL, or any combination)
+- API key fields for Pexels and Pixabay (also read from `PEXELS_API_KEY` / `PIXABAY_API_KEY` env vars)
 - Output directory selection
 - Resolution constraints
 - WebP to JPG conversion toggle
@@ -99,16 +107,28 @@ python image_scraper_multitool.py "search query" [options]
 
 #### Examples
 
-Scrape 20 images from both engines:
+Scrape 20 images with the default engine (Bing):
 
 ```bash
 python image_scraper_multitool.py "red pandas" --num-images 20
+```
+
+Maximize Bing results with query expansion:
+
+```bash
+python image_scraper_multitool.py "cats" --num-images 60 --expand-queries
 ```
 
 Scrape only from Bing with custom timeout:
 
 ```bash
 python image_scraper_multitool.py "cats" --engine bing --num-images 10 --bing-timeout 30
+```
+
+Scrape from Pexels and Pixabay (free API keys required):
+
+```bash
+python image_scraper_multitool.py "mountains" --engine pexels --engine pixabay --pexels-api-key KEY1 --pixabay-api-key KEY2
 ```
 
 Scrape from Google with resolution constraints:
@@ -126,8 +146,8 @@ positional arguments:
 optional arguments:
   --num-images NUM_IMAGES
                         Number of images to attempt to download per engine (default: 10)
-  --engine {bing,google,custom}
-                        Specify one or more engines. Defaults to both
+  --engine {bing,google,custom,pexels,pixabay}
+                        Specify one or more engines. Defaults to bing
   --output-dir OUTPUT_DIR
                         Base directory where images should be saved (default: ./downloads)
   --keep-filenames      Keep filenames from the search results when possible
@@ -140,6 +160,11 @@ optional arguments:
                         Max output height (0 = no limit)
   --bing-timeout BING_TIMEOUT
                         Timeout in seconds for individual Bing requests (default: 15)
+  --expand-queries      Search query variants (plural, photo, wallpaper, picture) to multiply results
+  --pexels-api-key PEXELS_API_KEY
+                        Pexels API key (free at pexels.com/api). Falls back to PEXELS_API_KEY
+  --pixabay-api-key PIXABAY_API_KEY
+                        Pixabay API key (free at pixabay.com/api/docs). Falls back to PIXABAY_API_KEY
   --google-chromedriver GOOGLE_CHROMEDRIVER
                         Optional explicit path to chromedriver. If omitted, auto-download is used
   --google-show-browser
@@ -183,10 +208,18 @@ downloads/
 │       ├── bing_0001.jpg
 │       ├── bing_0002.png
 │       └── _downloaded_urls.txt
-└── google/
+├── google/
+│   └── search-query-slug/
+│       ├── google_0001.jpg
+│       ├── google_0002.webp
+│       └── _downloaded_urls.txt
+├── pexels/
+│   └── search-query-slug/
+│       ├── pexels_0001.jpg
+│       └── _downloaded_urls.txt
+└── pixabay/
     └── search-query-slug/
-        ├── google_0001.jpg
-        ├── google_0002.webp
+        ├── pixabay_0001.jpg
         └── _downloaded_urls.txt
 ```
 
@@ -204,11 +237,21 @@ downloads/
 - Check firewall/antivirus settings
 - Manually download from [ChromeDriver Downloads](https://googlechromelabs.github.io/chromedriver/)
 
+#### Google scraping is blocked ("sorry / unusual traffic")
+
+- This is Google's anti-bot protection, not a bug in the tool. The scraper detects the block page and reports a `google_blocked` error with recovery suggestions.
+- Try again later, use `--google-show-browser` (visible browser is less likely to be flagged than headless), or use `--engine bing` instead.
+
 #### Google scraping returns few results
 
 - Try adjusting resolution constraints
 - Increase `--google-max-missed` value
 - Ensure Chrome browser is up to date
+
+#### Pexels/Pixabay report a missing API key
+
+- Both engines require a free API key: [Pexels](https://www.pexels.com/api/) (200 requests/hour) and [Pixabay](https://pixabay.com/api/docs/) (100 requests/minute).
+- Pass `--pexels-api-key` / `--pixabay-api-key` or set the `PEXELS_API_KEY` / `PIXABAY_API_KEY` environment variables.
 
 #### Bing scraping fails
 

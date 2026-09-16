@@ -21,7 +21,7 @@ LOGGER = logging.getLogger("image_scraper")
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Scrape images from Bing, Google, or a custom URL."
+        description="Scrape images from Bing, Google, Pexels, Pixabay, or a custom URL."
     )
     parser.add_argument("query", help="Search term or URL to scrape.")
     parser.add_argument(
@@ -31,8 +31,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--engine",
         dest="engines",
         action="append",
-        choices=("bing", "google", "custom"),
-        help="Specify one or more engines. Defaults to bing + google.",
+        choices=("bing", "google", "custom", "pexels", "pixabay"),
+        help="Specify one or more engines. Defaults to bing.",
     )
     parser.add_argument(
         "--output-dir",
@@ -63,6 +63,21 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser.add_argument(
         "--bing-timeout", type=float, default=15.0, help="Bing request timeout in seconds."
+    )
+    parser.add_argument(
+        "--expand-queries",
+        action="store_true",
+        help="Search query variants (plural, photo, wallpaper, picture) to multiply results.",
+    )
+    parser.add_argument(
+        "--pexels-api-key",
+        default="",
+        help="Pexels API key (free at pexels.com/api). Falls back to PEXELS_API_KEY.",
+    )
+    parser.add_argument(
+        "--pixabay-api-key",
+        default="",
+        help="Pixabay API key (free at pixabay.com/api/docs). Falls back to PIXABAY_API_KEY.",
     )
 
     parser.add_argument(
@@ -120,7 +135,7 @@ def configure_logging(level: str) -> None:
 
 
 def _build_options(args: argparse.Namespace) -> ScrapeOptions:
-    engines = args.engines or ["bing", "google"]
+    engines = args.engines or ["bing"]
     deduped_engines = list(dict.fromkeys(engines))
 
     return ScrapeOptions(
@@ -130,6 +145,9 @@ def _build_options(args: argparse.Namespace) -> ScrapeOptions:
         output_dir=args.output_dir,
         keep_filenames=args.keep_filenames,
         bing_timeout=args.bing_timeout,
+        expand_queries=args.expand_queries,
+        pexels_api_key=args.pexels_api_key,
+        pixabay_api_key=args.pixabay_api_key,
         transform=TransformOptions(
             convert_webp=args.convert_webp,
             compression_quality=args.compression_quality,

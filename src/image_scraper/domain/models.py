@@ -10,7 +10,7 @@ from typing import Literal
 
 from image_scraper.errors import ConfigurationError
 
-EngineName = Literal["bing", "google", "custom"]
+EngineName = Literal["bing", "google", "custom", "pexels", "pixabay"]
 
 
 @dataclass(frozen=True)
@@ -101,6 +101,9 @@ class ScrapeOptions:
     keep_filenames: bool = False
     transform: TransformOptions = field(default_factory=TransformOptions)
     bing_timeout: float = 15.0
+    expand_queries: bool = False
+    pexels_api_key: str = ""
+    pixabay_api_key: str = ""
     google: GoogleOptions = field(default_factory=GoogleOptions)
     custom_page: CustomPageOptions = field(default_factory=CustomPageOptions)
 
@@ -123,7 +126,7 @@ class ScrapeOptions:
         if not self.engines:
             raise ConfigurationError("validate_scrape", "at least one engine must be selected")
 
-        unknown = sorted(set(self.engines) - {"bing", "google", "custom"})
+        unknown = sorted(set(self.engines) - {"bing", "google", "custom", "pexels", "pixabay"})
         if unknown:
             raise ConfigurationError(
                 "validate_scrape",

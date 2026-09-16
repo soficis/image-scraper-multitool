@@ -46,6 +46,9 @@ def create_chrome_driver(
     options.add_argument("--enable-unsafe-swiftshader")
     options.add_argument("--disable-software-rasterizer")
     options.add_argument(f"user-agent={DEFAULT_USER_AGENT}")
+    options.add_argument("--disable-blink-features=AutomationControlled")
+    options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    options.add_experimental_option("useAutomationExtension", False)
 
     # If chromedriver_path is None, Selenium Manager auto-resolves a compatible driver.
     service = Service(executable_path=str(chromedriver_path)) if chromedriver_path else Service()

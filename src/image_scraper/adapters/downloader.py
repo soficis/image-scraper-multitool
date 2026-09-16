@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator
+import time
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Event
@@ -16,6 +17,14 @@ from image_scraper.domain.naming import sanitize_filename
 from image_scraper.errors import DownloadError
 
 from .filesystem import append_manifest, ensure_directory, load_manifest, unique_path
+from .http_resilience import (
+    MAX_ATTEMPTS,
+    MAX_DOWNLOAD_BYTES,
+    RETRYABLE_STATUS_CODES,
+    HostThrottler,
+    iter_capped_chunks,
+    retry_delay,
+)
 from .image_processing import compress_image, decode_data_uri, maybe_convert_webp_to_jpg
 
 
@@ -26,12 +35,6 @@ class DownloadOptions:
     keep_filenames: bool
     timeout: float
     transform: TransformOptions
-
-
-def _iter_chunks(response: requests.Response, chunk_size: int = 8192) -> Iterator[bytes]:
-    for chunk in response.iter_content(chunk_size=chunk_size):
-        if chunk:
-            yield chunk
 
 
 def _filename_for_candidate(
@@ -52,8 +55,88 @@ def _write_bytes(path: Path, payload: bytes) -> None:
 
 def _write_response(path: Path, response: requests.Response) -> None:
     with path.open("wb") as handle:
-        for chunk in _iter_chunks(response):
+        for chunk in iter_capped_chunks(response):
             handle.write(chunk)
+
+
+def _download_single_url(
+    *,
+    session: requests.Session,
+    candidate_url: str,
+    headers: dict[str, str],
+    candidate: DownloadCandidate,
+    options: DownloadOptions,
+    index: int,
+    throttler: HostThrottler,
+    stop_event: Event | None,
+) -> tuple[Path, str]:
+    last_error: Exception | None = None
+    response: requests.Response | None = None
+
+    for attempt in range(MAX_ATTEMPTS):
+        if stop_event and stop_event.is_set():
+            break
+        throttler.wait(candidate_url)
+        try:
+            with session.get(
+                candidate_url,
+                timeout=options.timeout,
+                stream=True,
+                headers=headers,
+            ) as live_response:
+                response = live_response
+                live_response.raise_for_status()
+                declared = live_response.headers.get("Content-Length", "").strip()
+                if declared:
+                    try:
+                        if int(declared) > MAX_DOWNLOAD_BYTES:
+                            raise DownloadError(
+                                "download_too_large",
+                                "declared content length exceeds size limit",
+                                context={"url": candidate_url, "bytes": declared},
+                            )
+                    except ValueError:
+                        pass
+                suffix = best_extension(
+                    original_name=sanitize_filename(candidate.name),
+                    fallback_url=candidate_url,
+                    content_type=live_response.headers.get("Content-Type", ""),
+                )
+                filename = _filename_for_candidate(
+                    candidate=candidate,
+                    index=index,
+                    suffix=suffix,
+                    options=options,
+                )
+                target_path = unique_path(options.destination / filename)
+                _write_response(target_path, live_response)
+                return target_path, candidate_url
+        except requests.HTTPError as error:
+            last_error = error
+            if error.response is not None and error.response.status_code not in (
+                RETRYABLE_STATUS_CODES
+            ):
+                break
+            response = error.response
+        except DownloadError:
+            raise
+        # Transient transport failures are retried; other request errors fail fast.
+        except (requests.ConnectionError, requests.Timeout) as error:
+            last_error = error
+        except requests.RequestException as error:
+            last_error = error
+            break
+        if attempt + 1 < MAX_ATTEMPTS and not (stop_event and stop_event.is_set()):
+            time.sleep(retry_delay(attempt=attempt, response=response))
+            response = None
+
+    if last_error is None:
+        raise DownloadError(
+            "download_http_candidate",
+            "download stopped before any attempt completed",
+            context={"url": candidate_url},
+        )
+    raise last_error
 
 
 def _download_http_candidate(
@@ -62,6 +145,8 @@ def _download_http_candidate(
     candidate: DownloadCandidate,
     options: DownloadOptions,
     index: int,
+    throttler: HostThrottler,
+    stop_event: Event | None = None,
 ) -> tuple[Path, str]:
     headers = {"User-Agent": DEFAULT_USER_AGENT}
     if candidate.referrer:
@@ -71,31 +156,22 @@ def _download_http_candidate(
     if candidate.fallback_url and candidate.fallback_url != candidate.url:
         candidate_urls.append(candidate.fallback_url)
 
-    last_error: requests.RequestException | None = None
+    last_error: Exception | None = None
 
     for candidate_url in candidate_urls:
         try:
-            with session.get(
-                candidate_url,
-                timeout=options.timeout,
-                stream=True,
+            return _download_single_url(
+                session=session,
+                candidate_url=candidate_url,
                 headers=headers,
-            ) as response:
-                response.raise_for_status()
-                suffix = best_extension(
-                    original_name=sanitize_filename(candidate.name),
-                    fallback_url=candidate_url,
-                    content_type=response.headers.get("Content-Type", ""),
-                )
-                filename = _filename_for_candidate(
-                    candidate=candidate,
-                    index=index,
-                    suffix=suffix,
-                    options=options,
-                )
-                target_path = unique_path(options.destination / filename)
-                _write_response(target_path, response)
-                return target_path, candidate_url
+                candidate=candidate,
+                options=options,
+                index=index,
+                throttler=throttler,
+                stop_event=stop_event,
+            )
+        except DownloadError as error:
+            last_error = error
         except requests.RequestException as error:
             last_error = error
 
@@ -126,6 +202,7 @@ def download_candidates(
     own_session = session is None
     active_session = session or requests.Session()
     active_session.headers.setdefault("User-Agent", DEFAULT_USER_AGENT)
+    throttler = HostThrottler()
 
     try:
         for index, candidate in enumerate(candidates, start=1):
@@ -159,6 +236,8 @@ def download_candidates(
                         candidate=candidate,
                         options=options,
                         index=index,
+                        throttler=throttler,
+                        stop_event=stop_event,
                     )
 
                 final_path = target_path
