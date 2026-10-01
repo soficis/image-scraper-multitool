@@ -7,16 +7,22 @@ a free API key, and a list of photo objects per page. Engine-specific bits
 
 from __future__ import annotations
 
+import logging
 import os
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
+from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import requests
 
 from image_scraper.constants import DEFAULT_USER_AGENT
+from image_scraper.domain.models import DownloadCandidate
 from image_scraper.errors import ConfigurationError, EngineError
 
 from .http_resilience import HOST_MIN_INTERVAL_SECONDS, HostThrottler
+
+LOGGER = logging.getLogger(__name__)
 
 
 def resolve_api_key(*, engine: str, explicit_key: str | None, env_var: str, signup_url: str) -> str:
@@ -43,20 +49,32 @@ def fetch_paginated_urls(
     timeout: float,
     items_key: str,
     extract_url: Callable[[Any], str],
+    min_interval: float = HOST_MIN_INTERVAL_SECONDS,
+    max_pages: int = 100,
+    per_page: int | None = None,
 ) -> list[str]:
-    """Walk pages until `limit` unique URLs are collected or a page runs short."""
+    """Walk pages until `limit` unique URLs are collected or a page runs short.
+
+    `max_pages` bounds the walk so an endpoint that always returns full
+    pages cannot spin forever; callers asking for huge limits raise it.
+    `per_page` is the page size used for the short-page check; it defaults to
+    the `per_page` request param for APIs that name it that way.
+
+    A failure on the first page raises; a failure on a later page keeps the
+    URLs already collected and logs a warning instead of discarding them.
+    """
     session = requests.Session()
     session.headers.setdefault("User-Agent", DEFAULT_USER_AGENT)
     if extra_headers:
         session.headers.update(extra_headers)
-    throttler = HostThrottler(min_interval=HOST_MIN_INTERVAL_SECONDS)
+    throttler = HostThrottler(min_interval=min_interval)
 
     urls: list[str] = []
     seen: set[str] = set()
     page = 1
-    per_page = int(base_params.get("per_page", "80"))
+    page_size = per_page if per_page is not None else int(base_params.get("per_page", "80"))
 
-    while len(urls) < limit:
+    while len(urls) < limit and page <= max_pages:
         throttler.wait(search_url)
         try:
             response = session.get(
@@ -66,16 +84,25 @@ def fetch_paginated_urls(
             )
             response.raise_for_status()
             payload = response.json()
-        except requests.RequestException as error:
+        except (requests.RequestException, ValueError) as error:
+            message = (
+                "API returned an unreadable response"
+                if isinstance(error, ValueError)
+                else "failed to fetch image results"
+            )
+            if urls:
+                LOGGER.warning(
+                    "%s: %s on page %d; keeping %d collected URLs (%s)",
+                    operation,
+                    message,
+                    page,
+                    len(urls),
+                    error,
+                )
+                break
             raise EngineError(
                 operation,
-                "failed to fetch image results",
-                context={"query": query, "page": page, "error": str(error)},
-            ) from error
-        except ValueError as error:
-            raise EngineError(
-                operation,
-                "API returned an unreadable response",
+                message,
                 context={"query": query, "page": page, "error": str(error)},
             ) from error
 
@@ -92,8 +119,25 @@ def fetch_paginated_urls(
             seen.add(image_url)
             urls.append(image_url)
 
-        if len(items) < per_page:
+        if len(items) < page_size:
             break
         page += 1
 
     return urls[:limit]
+
+
+def urls_to_candidates(
+    urls: Iterable[str], *, fallback_prefix: str, referrer: str
+) -> list[DownloadCandidate]:
+    """Map collected image URLs to download candidates with fallback names."""
+    candidates: list[DownloadCandidate] = []
+    for position, image_url in enumerate(urls, start=1):
+        name = Path(urlsplit(image_url).path).name
+        candidates.append(
+            DownloadCandidate(
+                url=image_url,
+                name=name or f"{fallback_prefix}_{position}.jpg",
+                referrer=referrer,
+            )
+        )
+    return candidates

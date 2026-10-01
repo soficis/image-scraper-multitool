@@ -6,11 +6,11 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from threading import Event
-from typing import Literal
+from typing import Literal, get_args
 
 from image_scraper.errors import ConfigurationError
 
-EngineName = Literal["bing", "google", "custom", "pexels", "pixabay"]
+EngineName = Literal["bing", "google", "custom", "pexels", "pixabay", "openverse"]
 
 
 @dataclass(frozen=True)
@@ -19,6 +19,10 @@ class TransformOptions:
     compression_quality: int = 0
     resize_width: int = 0
     resize_height: int = 0
+    format: str = "keep"
+    quality: int = 85
+    max_width: int = 0
+    max_height: int = 0
 
     def validate(self) -> None:
         if not 0 <= self.compression_quality <= 100:
@@ -32,6 +36,18 @@ class TransformOptions:
                 "validate_transform",
                 "resize dimensions must be zero or positive",
                 context={"resize_width": self.resize_width, "resize_height": self.resize_height},
+            )
+        if not 1 <= self.quality <= 100:
+            raise ConfigurationError(
+                "validate_transform",
+                "quality must be between 1 and 100",
+                context={"quality": self.quality},
+            )
+        if self.max_width < 0 or self.max_height < 0:
+            raise ConfigurationError(
+                "validate_transform",
+                "max dimensions must be zero or positive",
+                context={"max_width": self.max_width, "max_height": self.max_height},
             )
 
 
@@ -101,6 +117,7 @@ class ScrapeOptions:
     keep_filenames: bool = False
     transform: TransformOptions = field(default_factory=TransformOptions)
     bing_timeout: float = 15.0
+    api_timeout: float = 15.0
     expand_queries: bool = False
     pexels_api_key: str = ""
     pixabay_api_key: str = ""
@@ -123,10 +140,16 @@ class ScrapeOptions:
                 "bing_timeout must be positive",
                 context={"bing_timeout": self.bing_timeout},
             )
+        if self.api_timeout <= 0:
+            raise ConfigurationError(
+                "validate_scrape",
+                "api_timeout must be positive",
+                context={"api_timeout": self.api_timeout},
+            )
         if not self.engines:
             raise ConfigurationError("validate_scrape", "at least one engine must be selected")
 
-        unknown = sorted(set(self.engines) - {"bing", "google", "custom", "pexels", "pixabay"})
+        unknown = sorted(set(self.engines) - set(get_args(EngineName)))
         if unknown:
             raise ConfigurationError(
                 "validate_scrape",
@@ -171,6 +194,9 @@ class BatchConversionResult:
     skipped: int
     errors: list[str]
     output_dir: Path
+    bytes_in: int = 0
+    bytes_out: int = 0
+    failed: int = 0  # subset of skipped that errored (vs. not-smaller skips)
 
 
 @dataclass(frozen=True)

@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from threading import Event
 from typing import Any
-from urllib.parse import urlsplit
 
 from image_scraper.domain.models import DownloadCandidate, ScrapeResult, TransformOptions
 
 from .downloader import DownloadOptions, download_candidates
-from .stock_api import fetch_paginated_urls, resolve_api_key
+from .stock_api import fetch_paginated_urls, resolve_api_key, urls_to_candidates
 
 SEARCH_URL = "https://pixabay.com/api/"
 PER_PAGE = 80
@@ -44,17 +44,7 @@ def _collect_candidates(
         items_key="hits",
         extract_url=_extract_url,
     )
-    candidates: list[DownloadCandidate] = []
-    for position, image_url in enumerate(urls, start=1):
-        name = Path(urlsplit(image_url).path).name
-        candidates.append(
-            DownloadCandidate(
-                url=image_url,
-                name=name or f"pixabay_{position}.jpg",
-                referrer="https://pixabay.com/",
-            )
-        )
-    return candidates
+    return urls_to_candidates(urls, fallback_prefix="pixabay", referrer="https://pixabay.com/")
 
 
 def scrape_pixabay(
@@ -67,6 +57,7 @@ def scrape_pixabay(
     timeout: float,
     api_key: str | None = None,
     stop_event: Event | None = None,
+    on_saved: Callable[[DownloadCandidate, Path], None] | None = None,
 ) -> ScrapeResult:
     resolved_key = resolve_api_key(
         engine="pixabay", explicit_key=api_key, env_var=ENV_VAR, signup_url=SIGNUP_URL
@@ -84,6 +75,7 @@ def scrape_pixabay(
             transform=transform,
         ),
         stop_event=stop_event,
+        on_saved=on_saved,
     )
     return ScrapeResult(
         engine="pixabay",

@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
-from image_scraper.constants import DEFAULT_USER_AGENT
 from image_scraper.errors import ConfigurationError, DependencyError, EngineError
+
+LOGGER = logging.getLogger(__name__)
 
 
 def resolve_chromedriver_path(explicit_path: Path | None) -> Path | None:
@@ -45,7 +47,6 @@ def create_chrome_driver(
     options.add_argument("--log-level=3")
     options.add_argument("--enable-unsafe-swiftshader")
     options.add_argument("--disable-software-rasterizer")
-    options.add_argument(f"user-agent={DEFAULT_USER_AGENT}")
     options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
     options.add_experimental_option("useAutomationExtension", False)
@@ -77,4 +78,24 @@ def create_chrome_driver(
         ) from error
 
     driver.set_page_load_timeout(page_load_timeout)
+    if headless:
+        mask_headless_user_agent(driver)
     return driver
+
+
+def mask_headless_user_agent(driver: Any) -> None:
+    """Drop the `HeadlessChrome` token that `--headless=new` advertises.
+
+    Derived from the running browser rather than a pinned string, so the
+    reported version always matches the real Chrome build.
+    """
+    try:
+        agent = str(driver.execute_cdp_cmd("Browser.getVersion", {}).get("userAgent", ""))
+        if "HeadlessChrome" not in agent:
+            return
+        driver.execute_cdp_cmd(
+            "Network.setUserAgentOverride",
+            {"userAgent": agent.replace("HeadlessChrome", "Chrome")},
+        )
+    except Exception as error:  # CDP unavailable (remote/non-Chromium driver)
+        LOGGER.warning("could not mask headless user agent: %s", error)

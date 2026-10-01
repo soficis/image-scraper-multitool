@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
+import pytest
 import requests
 
 from image_scraper.adapters.downloader import (
@@ -39,10 +41,10 @@ class FakeResponse:
     def raise_for_status(self) -> None:
         if self.status_code >= 400:
             error = requests.HTTPError(f"{self.status_code} error")
-            error.response = self  # type: ignore[attr-defined]
+            error.response = self
             raise error
 
-    def iter_content(self, chunk_size: int = 8192):  # type: ignore[no-untyped-def]
+    def iter_content(self, chunk_size: int = 8192) -> Iterator[bytes]:
         yield self._payload
 
 
@@ -89,6 +91,15 @@ def test_no_retry_on_404(tmp_path: Path) -> None:
     assert session.calls == 1
 
 
+def test_unsupported_scheme_skips_without_network(tmp_path: Path) -> None:
+    session = FakeSession([FakeResponse(200)])
+    candidate = DownloadCandidate(url="ftp://example.com/pic.jpg", name="pic.jpg")
+    batch = download_candidates([candidate], _options(tmp_path), session=session)
+    assert batch.saved == 0
+    assert batch.skipped == 1
+    assert session.calls == 0
+
+
 def test_oversize_declared_length_skips_without_retry(tmp_path: Path) -> None:
     session = FakeSession(
         [FakeResponse(200, payload=b"x", headers={"Content-Length": str(200 * 1024 * 1024)})]
@@ -118,3 +129,66 @@ def test_throttler_spaces_same_host_requests() -> None:
     start = time.monotonic()
     throttler.wait("http://example.com/b.jpg")
     assert time.monotonic() - start >= 0.15
+
+
+def test_on_saved_hook_failure_keeps_file(tmp_path: Path) -> None:
+    import base64
+
+    from image_scraper.adapters.downloader import DownloadOptions, download_candidates
+    from image_scraper.domain.models import DownloadCandidate, TransformOptions
+
+    payload = base64.b64encode(b"\xff\xd8\xff\xe0fakejpeg").decode()
+    candidate = DownloadCandidate(url=f"data:image/jpeg;base64,{payload}", name="a.jpg")
+
+    def broken_hook(_candidate: DownloadCandidate, _path: Path) -> None:
+        raise OSError("disk full")
+
+    result = download_candidates(
+        [candidate],
+        DownloadOptions(
+            destination=tmp_path,
+            filename_prefix="t",
+            keep_filenames=False,
+            timeout=5.0,
+            transform=TransformOptions(),
+        ),
+        on_saved=broken_hook,
+    )
+    assert result.saved == 1
+    assert result.skipped == 0
+    assert any("post-save hook failed" in error for error in result.errors)
+    assert any(path.suffix for path in tmp_path.iterdir() if path.name.startswith("t_"))
+
+
+def test_html_response_falls_back_to_fallback_url(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # First URL returns HTML (e.g. login/block wall); fallback URL returns JPEG
+    responses = [
+        FakeResponse(
+            200, payload=b"<html>Login required</html>", headers={"Content-Type": "text/html"}
+        ),
+        FakeResponse(200, payload=b"jpeg-image-bytes", headers={"Content-Type": "image/jpeg"}),
+    ]
+    session = FakeSession(responses)
+    monkeypatch.setattr("image_scraper.adapters.downloader.requests.Session", lambda: session)
+
+    candidate = DownloadCandidate(
+        url="https://example.com/blocked_page",
+        name="test.jpg",
+        fallback_url="https://example.com/valid_thumbnail.jpg",
+    )
+    result = download_candidates(
+        [candidate],
+        DownloadOptions(
+            destination=tmp_path,
+            filename_prefix="t",
+            keep_filenames=False,
+            timeout=5.0,
+            transform=TransformOptions(),
+        ),
+    )
+    assert result.saved == 1
+    assert result.skipped == 0
+    saved_file = next(tmp_path.iterdir())
+    assert saved_file.read_bytes() == b"jpeg-image-bytes"

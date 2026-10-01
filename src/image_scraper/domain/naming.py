@@ -8,7 +8,7 @@ import re
 def sanitize_filename(candidate: str) -> str:
     """Return a filesystem-safe filename fragment."""
     collapsed = re.sub(r"[^\w.\-]+", "_", candidate.strip())
-    return collapsed[:255] or "image"
+    return collapsed.lstrip(".")[:255] or "image"
 
 
 def slugify(value: str) -> str:

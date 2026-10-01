@@ -4,6 +4,7 @@ import json
 from bs4 import BeautifulSoup
 
 from image_scraper.adapters.bing import _parse_candidates_from_soup
+from image_scraper.adapters.google_errors import error_summary, selenium_exceptions
 from image_scraper.adapters.google_parsing import is_block_page as _is_block_page
 
 
@@ -59,3 +60,19 @@ def test_block_page_accepts_normal_results() -> None:
         )
         is False
     )
+
+
+def test_selenium_exceptions_shape() -> None:
+    stale_errors, fatal_errors = selenium_exceptions()
+    assert {t.__name__ for t in stale_errors} == {"StaleElementReferenceException"}
+    # WebDriverException is the base of every Selenium error; it must never
+    # be classified fatal or any per-card hiccup kills the whole engine.
+    assert {t.__name__ for t in fatal_errors} == {
+        "InvalidSessionIdException",
+        "NoSuchWindowException",
+    }
+
+
+def test_error_summary_handles_empty_message() -> None:
+    assert error_summary(RuntimeError("")) == "RuntimeError"
+    assert error_summary(RuntimeError("boom\ntrace")) == "RuntimeError: boom"

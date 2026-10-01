@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import time
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Event
+from urllib.parse import urlsplit
 
 import requests
 
@@ -25,7 +26,8 @@ from .http_resilience import (
     iter_capped_chunks,
     retry_delay,
 )
-from .image_processing import compress_image, decode_data_uri, maybe_convert_webp_to_jpg
+from .image_converter import ConversionOptions, convert_single_image
+from .image_processing import decode_data_uri
 
 
 @dataclass(frozen=True)
@@ -73,6 +75,14 @@ def _download_single_url(
     last_error: Exception | None = None
     response: requests.Response | None = None
 
+    scheme = urlsplit(candidate_url).scheme.lower()
+    if scheme not in ("http", "https"):
+        raise DownloadError(
+            "download_unsupported_scheme",
+            "candidate URL scheme is not downloadable",
+            context={"url": candidate_url, "scheme": scheme},
+        )
+
     for attempt in range(MAX_ATTEMPTS):
         if stop_event and stop_event.is_set():
             break
@@ -86,6 +96,13 @@ def _download_single_url(
             ) as live_response:
                 response = live_response
                 live_response.raise_for_status()
+                content_type = live_response.headers.get("Content-Type", "").lower()
+                if content_type.startswith("text/html"):
+                    raise DownloadError(
+                        "download_not_an_image",
+                        "response content-type is text/html, not an image",
+                        context={"url": candidate_url, "content_type": content_type},
+                    )
                 declared = live_response.headers.get("Content-Length", "").strip()
                 if declared:
                     try:
@@ -185,12 +202,76 @@ def _download_http_candidate(
     raise last_error
 
 
+def resolve_download_conversion(
+    transform: TransformOptions, path: Path
+) -> tuple[ConversionOptions | None, bool]:
+    """Determine ConversionOptions and whether to delete the original downloaded file."""
+    # 1. Backward compatibility: old convert_webp flag
+    if transform.convert_webp:
+        if path.suffix.lower() == ".webp":
+            quality = (
+                transform.compression_quality
+                if transform.compression_quality > 0
+                else (transform.quality if transform.quality > 0 else 95)
+            )
+            return ConversionOptions(
+                output_format="jpeg",
+                quality=quality,
+                max_width=transform.resize_width or transform.max_width,
+                max_height=transform.resize_height or transform.max_height,
+            ), True
+        elif (
+            transform.compression_quality > 0
+            or transform.resize_width > 0
+            or transform.resize_height > 0
+        ):
+            quality = transform.compression_quality if transform.compression_quality > 0 else 85
+            return ConversionOptions(
+                output_format="keep",
+                quality=quality,
+                max_width=transform.resize_width or transform.max_width,
+                max_height=transform.resize_height or transform.max_height,
+            ), True
+
+    # 2. Backward compatibility: old compression/resize without convert_webp
+    if (
+        (
+            transform.compression_quality > 0
+            or transform.resize_width > 0
+            or transform.resize_height > 0
+        )
+        and transform.format.lower() == "keep"
+        and transform.max_width == 0
+        and transform.max_height == 0
+    ):
+        quality = transform.compression_quality if transform.compression_quality > 0 else 85
+        return ConversionOptions(
+            output_format="keep",
+            quality=quality,
+            max_width=transform.resize_width,
+            max_height=transform.resize_height,
+        ), True
+
+    # 3. Unified conversion controls
+    fmt = transform.format.lower()
+    if fmt != "keep" or transform.max_width > 0 or transform.max_height > 0:
+        return ConversionOptions(
+            output_format=fmt,
+            quality=transform.quality,
+            max_width=transform.max_width,
+            max_height=transform.max_height,
+        ), False
+
+    return None, False
+
+
 def download_candidates(
     candidates: Iterable[DownloadCandidate],
     options: DownloadOptions,
     *,
     stop_event: Event | None = None,
     session: requests.Session | None = None,
+    on_saved: Callable[[DownloadCandidate, Path], None] | None = None,
 ) -> DownloadBatchResult:
     ensure_directory(options.destination)
 
@@ -246,24 +327,22 @@ def download_candidates(
                         "download", "target path was not initialized", context={"url": source_url}
                     )
 
-                if options.transform.convert_webp:
-                    final_path = maybe_convert_webp_to_jpg(final_path)
-
-                if (
-                    options.transform.compression_quality > 0
-                    or options.transform.resize_width > 0
-                    or options.transform.resize_height > 0
-                ):
-                    compress_image(
-                        final_path,
-                        options.transform.compression_quality,
-                        options.transform.resize_width,
-                        options.transform.resize_height,
+                conv_opts, delete_orig = resolve_download_conversion(options.transform, final_path)
+                if conv_opts is not None:
+                    final_path = convert_single_image(
+                        final_path, conv_opts, delete_original=delete_orig
                     )
 
                 append_manifest(options.destination, manifest_key)
                 seen_urls.add(manifest_key)
                 saved += 1
+                if on_saved is not None:
+                    # A hook failure must not reach the cleanup below: the file
+                    # is saved and already in the manifest.
+                    try:
+                        on_saved(candidate, final_path)
+                    except OSError as hook_error:
+                        errors.append(f"{source_url} (saved; post-save hook failed: {hook_error})")
 
             except (requests.RequestException, DownloadError, OSError) as error:
                 skipped += 1

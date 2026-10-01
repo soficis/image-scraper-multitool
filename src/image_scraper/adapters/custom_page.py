@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import time
 from collections import deque
+from collections.abc import Callable
 from pathlib import Path
 from threading import Event
 from typing import Any
@@ -145,6 +146,7 @@ def scrape_custom_page(
     recursion_depth: int,
     chromedriver_path: Path | None,
     stop_event: Event | None = None,
+    on_saved: Callable[[DownloadCandidate, Path], None] | None = None,
 ) -> ScrapeResult:
     resolved_driver_path = resolve_chromedriver_path(chromedriver_path)
     driver = create_chrome_driver(
@@ -181,6 +183,7 @@ def scrape_custom_page(
             transform=transform,
         ),
         stop_event=stop_event,
+        on_saved=on_saved,
     )
 
     return ScrapeResult(

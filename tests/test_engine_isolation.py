@@ -73,3 +73,46 @@ def test_unexpected_exception_is_contained(tmp_path: Path, monkeypatch: pytest.M
     results = scrape_module.scrape_images(_options(tmp_path, ["bing"]))
     assert len(results) == 1
     assert "RuntimeError" in results[0].errors[0]
+
+
+def test_openverse_routes_through_dispatcher(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def ok(**kwargs: object) -> ScrapeResult:
+        destination = tmp_path / "out" / "openverse" / "kittens"
+        return ScrapeResult(
+            engine="openverse",
+            requested=3,
+            saved=2,
+            skipped=0,
+            errors=[],
+            destination=destination,
+        )
+
+    monkeypatch.setattr(scrape_module, "scrape_openverse", ok)
+    results = scrape_module.scrape_images(_options(tmp_path, ["openverse"]))
+    assert len(results) == 1
+    assert results[0].engine == "openverse"
+    assert results[0].saved == 2 and not results[0].errors
+    assert results[0].destination == tmp_path / "out" / "openverse" / "kittens"
+
+
+def test_scrape_images_progress_callback(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    events: list[tuple[str, int, int]] = []
+
+    def mock_bing(**kwargs: object) -> ScrapeResult:
+        on_saved = kwargs.get("on_saved")
+        if callable(on_saved):
+            on_saved("fake_cand", tmp_path / "1.jpg")
+            on_saved("fake_cand", tmp_path / "2.jpg")
+        return ScrapeResult(
+            engine="bing", requested=3, saved=2, skipped=0, errors=[], destination=tmp_path / "bing"
+        )
+
+    monkeypatch.setattr(scrape_module, "scrape_bing", mock_bing)
+    scrape_module.scrape_images(
+        _options(tmp_path, ["bing"]),
+        progress=lambda eng, saved, req: events.append((eng, saved, req)),
+    )
+    # Check start (0/3), followed by 1/3 and 2/3
+    assert events == [("bing", 0, 3), ("bing", 1, 3), ("bing", 2, 3)]

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import sys
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -16,12 +17,19 @@ from image_scraper.domain.models import (
 )
 from image_scraper.errors import ImageScraperError
 
+from .convert import convert_main
+
 LOGGER = logging.getLogger("image_scraper")
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Scrape images from Bing, Google, Pexels, Pixabay, or a custom URL."
+        description="Scrape images from Bing, Google, Pexels, Pixabay, Openverse, or a custom URL.",
+        epilog=(
+            "Other command: `convert` converts/compresses local images "
+            '(run `convert --help`). To search for the literal word "convert", '
+            "use `scrape convert`."
+        ),
     )
     parser.add_argument("query", help="Search term or URL to scrape.")
     parser.add_argument(
@@ -31,7 +39,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--engine",
         dest="engines",
         action="append",
-        choices=("bing", "google", "custom", "pexels", "pixabay"),
+        choices=("bing", "google", "custom", "pexels", "pixabay", "openverse"),
         help="Specify one or more engines. Defaults to bing.",
     )
     parser.add_argument(
@@ -63,6 +71,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser.add_argument(
         "--bing-timeout", type=float, default=15.0, help="Bing request timeout in seconds."
+    )
+    parser.add_argument(
+        "--api-timeout",
+        type=float,
+        default=15.0,
+        help="Request timeout in seconds for the Pexels, Pixabay, and Openverse APIs.",
     )
     parser.add_argument(
         "--expand-queries",
@@ -145,6 +159,7 @@ def _build_options(args: argparse.Namespace) -> ScrapeOptions:
         output_dir=args.output_dir,
         keep_filenames=args.keep_filenames,
         bing_timeout=args.bing_timeout,
+        api_timeout=args.api_timeout,
         expand_queries=args.expand_queries,
         pexels_api_key=args.pexels_api_key,
         pixabay_api_key=args.pixabay_api_key,
@@ -166,8 +181,16 @@ def _build_options(args: argparse.Namespace) -> ScrapeOptions:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    # Subcommand dispatch that keeps the original `<query> [options]` form
+    # working: only an exact leading "convert"/"scrape" word is a command.
+    if arguments[:1] == ["convert"]:
+        return convert_main(arguments[1:])
+    if arguments[:1] == ["scrape"]:
+        arguments = arguments[1:]
+
     parser = build_parser()
-    args = parser.parse_args(argv)
+    args = parser.parse_args(arguments)
     configure_logging(args.log_level)
 
     try:

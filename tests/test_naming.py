@@ -9,6 +9,12 @@ def test_sanitize_filename_defaults_when_empty() -> None:
     assert sanitize_filename("   ") == "image"
 
 
+def test_sanitize_filename_strips_leading_dots() -> None:
+    assert sanitize_filename("..") == "image"
+    assert sanitize_filename("../evil") == "_evil"
+    assert sanitize_filename(".hidden") == "hidden"
+
+
 def test_slugify_normalizes_to_dash_separated_lowercase() -> None:
     assert slugify("  Red Panda Photos!!!  ") == "red-panda-photos"
 

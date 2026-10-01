@@ -120,3 +120,104 @@ def test_cli_accepts_new_engines_and_keys() -> None:
     )
     assert list(options.engines) == ["pexels", "pixabay"]
     assert options.pexels_api_key == "k1"
+
+
+def test_max_pages_bounds_always_full_pages(monkeypatch: pytest.MonkeyPatch) -> None:
+    page = {"photos": [_pexels_photo(f"http://x/p{i}.jpg") for i in range(80)]}
+    session = FakeJsonSession([page])
+    monkeypatch.setattr(stock_api_module.requests, "Session", lambda: session)
+    urls = stock_api_module.fetch_paginated_urls(
+        operation="test_collect",
+        query="cat",
+        search_url="http://x/search",
+        base_params={"query": "cat", "per_page": "80"},
+        extra_headers=None,
+        limit=1000,
+        timeout=5.0,
+        items_key="photos",
+        extract_url=lambda photo: photo["src"]["original"],
+        max_pages=2,
+    )
+    assert len(urls) == 80
+    assert session.calls == 2
+
+
+class _RecordingThrottler:
+    instances: list[_RecordingThrottler] = []
+
+    def __init__(self, min_interval: float = 0.0) -> None:
+        self.min_interval = min_interval
+        _RecordingThrottler.instances.append(self)
+
+    def wait(self, host: str) -> None:
+        pass
+
+
+def test_min_interval_threading(monkeypatch: pytest.MonkeyPatch) -> None:
+    _RecordingThrottler.instances.clear()
+    monkeypatch.setattr(stock_api_module, "HostThrottler", _RecordingThrottler)
+    page = {"photos": [_pexels_photo("http://x/p0.jpg")]}
+    session = FakeJsonSession([page])
+    monkeypatch.setattr(stock_api_module.requests, "Session", lambda: session)
+    pexels_module._collect_candidates(query="cat", limit=1, timeout=5.0, api_key="key")
+    assert _RecordingThrottler.instances[-1].min_interval == (
+        stock_api_module.HOST_MIN_INTERVAL_SECONDS
+    )
+
+    _RecordingThrottler.instances.clear()
+    import image_scraper.adapters.openverse as openverse_module
+
+    payload = {"results": [{"url": "http://z/a.jpg"}]}
+    session = FakeJsonSession([payload])
+    monkeypatch.setattr(stock_api_module.requests, "Session", lambda: session)
+    openverse_module._collect_candidates(query="cat", limit=1, timeout=5.0)
+    assert _RecordingThrottler.instances[-1].min_interval == 1.0
+
+
+class _BadJsonResponse(FakeJsonResponse):
+    def json(self) -> Any:
+        raise ValueError("not json")
+
+
+class _BadJsonSession(FakeJsonSession):
+    def get(self, *args: Any, **kwargs: Any) -> _BadJsonResponse:
+        self.calls += 1
+        return _BadJsonResponse(None)
+
+
+def test_unreadable_response_raises_engine_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    from image_scraper.errors import EngineError
+
+    session = _BadJsonSession([None])
+    monkeypatch.setattr(stock_api_module.requests, "Session", lambda: session)
+    with pytest.raises(EngineError):
+        pexels_module._collect_candidates(query="cat", limit=5, timeout=5.0, api_key="key")
+
+
+def test_non_dict_payload_returns_empty(monkeypatch: pytest.MonkeyPatch) -> None:
+    session = FakeJsonSession([[1, 2, 3]])
+    monkeypatch.setattr(stock_api_module.requests, "Session", lambda: session)
+    urls = stock_api_module.fetch_paginated_urls(
+        operation="test_collect",
+        query="cat",
+        search_url="http://x/search",
+        base_params={"query": "cat", "per_page": "80"},
+        extra_headers=None,
+        limit=5,
+        timeout=5.0,
+        items_key="photos",
+        extract_url=lambda photo: "",
+    )
+    assert urls == []
+    assert session.calls == 1
+
+
+def test_urls_to_candidates_fallback_names_and_referrer() -> None:
+    candidates = stock_api_module.urls_to_candidates(
+        ["http://x/photo.jpg", "http://x/", "http://y/pic.png"],
+        fallback_prefix="openverse",
+        referrer="https://openverse.org/",
+    )
+    assert [c.url for c in candidates] == ["http://x/photo.jpg", "http://x/", "http://y/pic.png"]
+    assert [c.name for c in candidates] == ["photo.jpg", "openverse_2.jpg", "pic.png"]
+    assert all(c.referrer == "https://openverse.org/" for c in candidates)

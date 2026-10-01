@@ -2,293 +2,356 @@
 
 [![Python Version](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![Code Quality](https://img.shields.io/badge/quality-ruff%20%7C%20mypy%20%7C%20pytest-green.svg)](tools/run_quality.py)
 
-A comprehensive tool for scraping images from Bing, Google Images, Pexels, and Pixabay with both a modern graphical user interface (GUI) and command-line interface (CLI). This project provides an easy-to-use solution for collecting images from multiple search engines while handling duplicates, file naming, and various configuration options.
+A production-grade desktop and command-line utility for multi-engine image scraping, batch image format conversion, compression, and metadata cleaning. Built with Python, Tkinter (modern dark theme), Requests, and Selenium.
 
-> [!NOTE]
-> **Engine reliability (verified by live testing):**
->
-> - **Bing** is the default and most reliable engine. It uses the `/images/async` endpoint (~35 unique results per query) and supports `--expand-queries` to multiply results with query variants (~100-140 unique per query, measured).
-> - **Pexels / Pixabay** are reliable API engines (up to 80 results per page, paginated) but require a free API key.
-> - **Google Images** uses browser automation (Selenium). Google's anti-bot measures frequently block headless scraping with a "sorry / unusual traffic" page — when this happens the tool reports a clear `google_blocked` error with recovery suggestions instead of silently returning nothing. Google is **not** enabled by default.
+---
 
-## Features
+## Highlights & Capabilities
 
-- **Multi-Engine Support**: Scrape images from Bing, Google Images, Pexels, Pixabay, or custom URLs
-- **Graphical Interface**: Modern, dark-themed Tkinter GUI for easy operation
-- **Command-Line Tool**: Full CLI support for automation and scripting
-- **Engine Isolation**: One failing engine no longer aborts the others — each failure is reported per engine
-- **Query Expansion**: Optional search-variant expansion (plural, photo, wallpaper, picture) to multiply Bing results
-- **Download Hardening**: Automatic retries with backoff, per-host throttling, and file-size guards
-- **Duplicate Prevention**: Automatic tracking of downloaded URLs to avoid duplicates
-- **Flexible Naming**: Option to keep original filenames or use numbered sequences
-- **Resolution Filtering**: Set minimum and maximum image resolutions
-- **WebP Conversion**: Automatically convert WebP images to JPG
-- **Image Compression**: Optional quality reduction and resizing for smaller files
-- **Custom URL Scraping**: Extract all images from any webpage with lazy-load support
-- **Auto-Driver Download**: Automatically downloads compatible ChromeDriver
-- **Cross-Platform**: Works on Windows, macOS, and Linux
-- **Organized Output**: Images are saved in structured directories by engine and query
+### Multi-Source Image Scraping
+- **Bing Images (Keyless, Default):** High-speed async collection with token-level relevance filtering, automatic noun-first query reformulation fallbacks, Facebook crawler link-repair, and query expansion (`--expand-queries`).
+- **Openverse (Keyless):** Direct access to millions of openly licensed and Creative Commons images with polite automatic rate-limiting (1 request/sec).
+- **Pexels & Pixabay (Free API):** Fast, paginated official API scrapers (free API keys supported via GUI fields, CLI flags, or `PEXELS_API_KEY` / `PIXABAY_API_KEY` environment variables).
+- **Google Images (Selenium):** Automated ChromeDriver management, visible or headless execution, resolution filtering, and automated anti-bot block detection.
+- **Custom Webpages:** Extract all hosted images from any URL with recursive depth and lazy-load scroll simulation.
+
+### Universal Image Converter & Optimizer
+- **Multi-Format Support:** Convert between JPEG, PNG, WebP, AVIF, HEIC, TIFF, BMP, GIF, and ICO.
+- **Lossless & Lossy Compression:** Quality slider (1–100) or true lossless encoding for WebP and HEIC.
+- **Aspect-Preserving Resizing:** Limit maximum width and height without distorting image proportions.
+- **Privacy & Metadata Stripping:** Strip EXIF, GPS location, and camera metadata while preserving embedded color profiles.
+- **`--only-smaller` Safeguard:** Optional compression filter that discards any re-encoded file that is larger than the original.
+- **Recursive Batch Processing:** Convert entire directory trees into a designated output folder or next to original files.
+
+### Modern Desktop Experience
+- **Slate Dark UI:** Custom-styled Tkinter interface featuring visual grouping, responsive layouts, and distinct tabs for Scraping and Converting.
+- **Per-Engine Live Progress:** Real-time visual progress counter (`Bing 4/10`, `Google 1/10`), active progress bar, and cancellation support.
+- **One-Click Native Folder Access:** Direct "Open Folder" action launching the native file manager (Windows Explorer, macOS Finder, or Linux file browser).
+- **Automatic Settings Persistence:** Remembers output directories, selected engines, API keys, and timeouts across sessions (`%APPDATA%/ImageScraperMultitool/settings.json` on Windows, `~/.config/image-scraper-multitool/` on Unix).
+
+### Reliability & Resilience
+- **Engine Isolation:** Failure in one engine (e.g. Google anti-bot challenge) never crashes or cancels other active engines.
+- **Relevance Protection:** Prevents search engines from injecting unrelated trending/localized fallback images when query matches are sparse.
+- **Download Hardening:** Automatic retry with exponential backoff on transient errors, per-host domain throttling, file-size limits, and non-image HTML response rejection with thumbnail fallback.
+- **Duplicate Prevention:** Tracks downloaded URLs across runs in per-query `_downloaded_urls.txt` logs.
+
+---
+
+## Engine Reliability Guide
+
+| Engine | Auth Required | Typical Yield / Query | Notes & Best Practices |
+| :--- | :--- | :--- | :--- |
+| **Bing** | None | ~35 unique (up to 140+ with `--expand-queries`) | **Default & Recommended.** Keyless, fast, features automatic query reordering and relevance filtering. |
+| **Openverse** | None | ~20–50 items | Keyless, openly licensed (CC). Politeness-throttled at 1 req/sec. |
+| **Pexels** | Free API Key | Up to 80 / page (paginated) | Very fast and reliable. Free API key from [pexels.com/api](https://www.pexels.com/api/). |
+| **Pixabay** | Free API Key | Up to 80 / page (paginated) | Very fast and reliable. Free API key from [pixabay.com/api/docs](https://pixabay.com/api/docs/). |
+| **Google** | None (Chrome req.) | 10–50 items | Uses Selenium. Subject to Google's anti-bot detection; reports `google_blocked` if captcha occurs. Use `--google-show-browser` if headless is flagged. |
+| **Custom** | None | Variable | Scrapes `<img>` and background tags from any website URL. |
+
+---
 
 ## Project Structure
 
-- `image_scraper_gui.py` — GUI launcher entrypoint
-- `image_scraper_multitool.py` — CLI launcher entrypoint
-- `src/image_scraper/` — package with domain/app/adapters/cli/ui modules
-- `tests/` — deterministic unit tests
-- `tools/run_quality.py` — one-command format/lint/typecheck/test gate
-- `downloads/` — default output directory with organized subfolders
-- `requirements.txt` — runtime dependencies
+```text
+image-scraper-multitool/
+├── image_scraper_gui.py           # GUI launcher entrypoint
+├── image_scraper_multitool.py     # CLI launcher entrypoint (scrape & convert)
+├── src/image_scraper/
+│   ├── adapters/                  # Engine implementations (Bing, Google, Openverse, Pexels, Pixabay)
+│   │   ├── bing.py                # Bing async scraper with relevance filtering & fallbacks
+│   │   ├── downloader.py          # Resilient download manager with retry, throttling, fallbacks
+│   │   ├── google.py              # Google Selenium lifecycle & orchestration
+│   │   ├── image_converter.py     # Universal Pillow/pillow-heif batch converter & compressor
+│   │   ├── openverse.py           # Openverse REST API adapter with polite rate-limiting
+│   │   ├── pexels.py              # Pexels API adapter
+│   │   ├── pixabay.py             # Pixabay API adapter
+│   │   └── stock_api.py           # Shared REST pagination helper
+│   ├── app/                       # Application services (scrape orchestration, convert workflows)
+│   ├── cli/                       # Command-line subcommands (scrape, convert)
+│   ├── domain/                    # Pure domain models, typing, expansion, naming
+│   └── ui/                        # Tkinter GUI (Slate Dark theme, scrape & convert tabs, settings)
+├── tests/                         # Comprehensive unit & integration test suite (188+ tests)
+├── tools/
+│   └── run_quality.py             # One-step quality gate (Ruff format, Ruff lint, Mypy, Pytest)
+├── pyproject.toml                 # Build config, Ruff & Mypy settings
+├── requirements.txt               # Runtime dependencies
+└── requirements-dev.txt           # Developer tooling (pytest, ruff, mypy)
+```
+
+---
 
 ## Installation
 
 ### Prerequisites
 
 - Python 3.8 or higher
-- Google Chrome browser (for Google Images scraping)
+- Google Chrome browser (only required if scraping via Google Images)
 
 ### Setup
 
-1. Clone the repository:
-
+1. **Clone the repository:**
    ```bash
    git clone https://github.com/soficis/image-scraper-multitool.git
    cd image-scraper-multitool
    ```
 
-2. Create a virtual environment (recommended):
-
+2. **Create and activate a virtual environment (recommended):**
    ```bash
    python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   # On Windows:
+   venv\Scripts\activate
+   # On macOS/Linux:
+   source venv/bin/activate
    ```
 
-3. Install dependencies:
-
+3. **Install dependencies:**
    ```bash
    pip install -r requirements.txt
    ```
 
-4. (Optional) Install developer tooling for quality gates:
-
+4. **(Optional) Install development dependencies for quality checks:**
    ```bash
    pip install -r requirements-dev.txt
    ```
 
+---
+
 ## Usage
 
-### Graphical Interface (Recommended)
+### 1. Graphical User Interface (GUI)
 
-Launch the GUI application:
+Launch the desktop interface:
 
 ```bash
 python image_scraper_gui.py
 ```
 
-The interface provides:
+The application provides two dedicated tabs:
 
-- Search query input
-- Engine selection (Bing, Google, Pexels, Pixabay, Custom URL, or any combination)
-- API key fields for Pexels and Pixabay (also read from `PEXELS_API_KEY` / `PIXABAY_API_KEY` env vars)
-- Output directory selection
-- Resolution constraints
-- WebP to JPG conversion toggle
-- Image compression and resizing options
-- Real-time logging
-- Progress tracking
+#### Scrape Tab
+- **Query Input & Engine Selection:** Toggle any combination of Bing, Google, Openverse, Pexels, Pixabay, or Custom URL.
+- **API Keys:** Secure inputs for Pexels and Pixabay keys with auto-fill from environment variables.
+- **Download Settings:** Output path selection with native browsing, image count limits, and timeout controls.
+- **Search Variants:** Check "Also search variants" to automatically expand queries (plural, photo, wallpaper) to multiply results.
+- **Real-Time Feedback:** Live counter displaying active downloads per engine (`Bing 4/10`, `Google 1/10`), animated progress bar, and single-click cancellation.
+- **Output Management:** Direct "Open Folder" button opening the destination folder in Windows Explorer, macOS Finder, or Linux file manager.
 
-### Command-Line Interface
+#### Convert Images Tab
+- **Input Selection:** Select individual files or entire folders for batch conversion.
+- **Output Format:** Convert to JPEG, PNG, WebP, AVIF, HEIC, TIFF, BMP, GIF, or ICO (or keep original format for pure compression).
+- **Optimization Controls:** Quality slider (1–100), lossless mode toggle, and `--only-smaller` protection.
+- **Dimensions & Privacy:** Constrain maximum width/height and toggle EXIF/GPS metadata stripping.
+- **Batch Processing:** Live file-by-file progress bar, status metrics, and direct output folder access.
 
-For automation or scripting, use the CLI tool:
+---
+
+### 2. Command-Line Interface (CLI)
+
+The CLI supports both image scraping and offline format conversion:
 
 ```bash
-python image_scraper_multitool.py "search query" [options]
+python image_scraper_multitool.py [command] [options]
 ```
 
-#### Examples
+#### Scraping Images (`scrape` or default query)
 
-Scrape 20 images with the default engine (Bing):
-
+**Basic scrape with Bing (default, 20 images):**
 ```bash
 python image_scraper_multitool.py "red pandas" --num-images 20
 ```
 
-Maximize Bing results with query expansion:
-
+**Maximize results with query expansion:**
 ```bash
-python image_scraper_multitool.py "cats" --num-images 60 --expand-queries
+python image_scraper_multitool.py "vintage motorcycles" --num-images 60 --expand-queries
 ```
 
-Scrape only from Bing with custom timeout:
-
+**Multi-engine scrape from Bing, Openverse, and Pexels:**
 ```bash
-python image_scraper_multitool.py "cats" --engine bing --num-images 10 --bing-timeout 30
+python image_scraper_multitool.py "aurora borealis" --engine bing --engine openverse --engine pexels --pexels-api-key YOUR_KEY --num-images 25
 ```
 
-Scrape from Pexels and Pixabay (free API keys required):
-
+**Scrape with Google Images and resolution constraints:**
 ```bash
-python image_scraper_multitool.py "mountains" --engine pexels --engine pixabay --pexels-api-key KEY1 --pixabay-api-key KEY2
+python image_scraper_multitool.py "mountain landscape" --engine google --google-min-resolution 1920 1080 --google-show-browser
 ```
 
-Scrape from Google with resolution constraints:
-
+**Extract images from a website:**
 ```bash
-python image_scraper_multitool.py "mountains" --engine google --google-min-resolution 1024 768 --google-max-resolution 4096 2160
+python image_scraper_multitool.py "https://news.ycombinator.com" --engine custom --custom-recursion-depth 1
 ```
 
-#### CLI Options
+#### Converting & Optimizing Images (`convert`)
+
+**Convert a directory of images to WebP at quality 80:**
+```bash
+python image_scraper_multitool.py convert ./photos --to webp --quality 80
+```
+
+**Convert Apple HEIC photos to JPG, strip metadata, and save to a subfolder:**
+```bash
+python image_scraper_multitool.py convert ./phone_photos --to jpg --strip-metadata --output-dir ./converted
+```
+
+**Compress images in-place, keeping only outputs that save disk space:**
+```bash
+python image_scraper_multitool.py convert ./gallery --to keep --quality 75 --only-smaller
+```
+
+**Downscale high-resolution images to fit 1920x1080:**
+```bash
+python image_scraper_multitool.py convert ./wallpapers --max-width 1920 --max-height 1080 --to png
+```
+
+---
+
+## CLI Options Reference
+
+### Scraper Options
 
 ```text
 positional arguments:
-  query                 Search term or URL to scrape
+  query                 Search term or URL to scrape.
 
-optional arguments:
+options:
   --num-images NUM_IMAGES
-                        Number of images to attempt to download per engine (default: 10)
-  --engine {bing,google,custom,pexels,pixabay}
-                        Specify one or more engines. Defaults to bing
+                        Images to download per engine (default: 10).
+  --engine {bing,google,custom,pexels,pixabay,openverse}
+                        Specify one or more engines. Defaults to bing.
   --output-dir OUTPUT_DIR
-                        Base directory where images should be saved (default: ./downloads)
-  --keep-filenames      Keep filenames from the search results when possible
-  --convert-webp        Convert WebP images to JPG after download
+                        Base output directory (default: ./downloads).
+  --keep-filenames      Keep original source filenames when possible.
+  --convert-webp        Convert WebP images to JPG after download.
   --compression-quality COMPRESSION_QUALITY
-                        JPEG quality (1-100). 0 disables compression
+                        JPEG quality (1-100). 0 disables compression.
   --resize-width RESIZE_WIDTH
-                        Max output width (0 = no limit)
+                        Max output width (0 = no limit).
   --resize-height RESIZE_HEIGHT
-                        Max output height (0 = no limit)
+                        Max output height (0 = no limit).
   --bing-timeout BING_TIMEOUT
-                        Timeout in seconds for individual Bing requests (default: 15)
-  --expand-queries      Search query variants (plural, photo, wallpaper, picture) to multiply results
+                        Bing request timeout in seconds (default: 15.0).
+  --api-timeout API_TIMEOUT
+                        Request timeout in seconds for Pexels, Pixabay, and Openverse APIs.
+  --expand-queries      Search query variants (plural, photo, wallpaper, picture) to multiply results.
   --pexels-api-key PEXELS_API_KEY
-                        Pexels API key (free at pexels.com/api). Falls back to PEXELS_API_KEY
+                        Pexels API key (free at pexels.com/api). Falls back to PEXELS_API_KEY env var.
   --pixabay-api-key PIXABAY_API_KEY
-                        Pixabay API key (free at pixabay.com/api/docs). Falls back to PIXABAY_API_KEY
+                        Pixabay API key (free at pixabay.com/api/docs). Falls back to PIXABAY_API_KEY env var.
   --google-chromedriver GOOGLE_CHROMEDRIVER
-                        Optional explicit path to chromedriver. If omitted, auto-download is used
-  --google-show-browser
-                        Run the Google scraper with a visible browser instead of headless mode
+                        Optional explicit path to chromedriver. If omitted, auto-download is used.
+  --google-show-browser Run Selenium with visible Chrome window instead of headless mode.
   --google-min-resolution WIDTH HEIGHT
-                        Minimum resolution accepted by the Google scraper
+                        Minimum Google image resolution.
   --google-max-resolution WIDTH HEIGHT
-                        Maximum resolution accepted by the Google scraper (default: 0 0 = disabled)
+                        Maximum Google image resolution (0 0 disables max).
   --google-max-missed GOOGLE_MAX_MISSED
-                        Maximum number of consecutive misses before Google scraping stops (default: 10)
+                        Stop Google collection after this many empty passes (default: 10).
   --custom-recursion-depth CUSTOM_RECURSION_DEPTH
-                        Recursion depth when --engine custom is used
+                        Recursion depth for custom URL mode.
   --log-level {DEBUG,INFO,WARNING,ERROR}
-                        Adjust logging verbosity (default: INFO)
+                        Logging verbosity.
 ```
 
-### Development Quality Gate
+### Converter Options
 
-Run all formatting, linting, type-checking, and tests with one command:
+```text
+positional arguments:
+  inputs                Image files and/or folders to convert.
+
+options:
+  --to FORMAT           Output format: keep (default; re-encode in original format),
+                        jpeg/jpg, png, webp, avif, heic, tiff, bmp, gif, ico.
+  --quality QUALITY     Compression quality (1-100) for JPEG, WebP, AVIF, HEIC (default: 85).
+  --lossless            Lossless encoding (WebP and HEIC only).
+  --max-width MAX_WIDTH Shrink to fit this width (0 = no limit).
+  --max-height MAX_HEIGHT
+                        Shrink to fit this height (0 = no limit).
+  --strip-metadata      Remove EXIF, GPS location, and camera info (color profiles preserved).
+  --only-smaller        Discard output files that are not smaller than their original.
+  --output-dir OUTPUT_DIR
+                        Write to this directory, mirroring input structure (default: next to original).
+  --list-formats        Print supported input and output formats and exit.
+  --log-level {DEBUG,INFO,WARNING,ERROR}
+                        Logging verbosity.
+```
+
+---
+
+## Output Organization
+
+Downloaded images are systematically structured by engine and query slug:
+
+```text
+downloads/
+├── bing/
+│   └── red-pandas/
+│       ├── bing_0001.jpg
+│       ├── bing_0002.png
+│       └── _downloaded_urls.txt
+├── openverse/
+│   └── red-pandas/
+│       ├── openverse_0001.jpg
+│       └── _downloaded_urls.txt
+├── pexels/
+│   └── red-pandas/
+│       ├── pexels_0001.jpg
+│       └── _downloaded_urls.txt
+└── google/
+    └── red-pandas/
+        ├── google_0001.jpg
+        └── _downloaded_urls.txt
+```
+
+- Each directory contains a `_downloaded_urls.txt` manifest ensuring subsequent runs never duplicate previously fetched URLs.
+- Filenames follow consistent zero-padded prefixes (`engine_0001.ext`) or retain source names when `--keep-filenames` is specified.
+
+---
+
+## Quality Gate & Testing
+
+The project maintains 100% passing test coverage across all features:
 
 ```bash
 python tools/run_quality.py
 ```
 
-## ChromeDriver Setup
+This single command executes:
+1. **Ruff Format:** Code style and indentation enforcement.
+2. **Ruff Lint:** Strict static analysis and hygiene checks.
+3. **Mypy:** Static type verification across all modules.
+4. **Pytest:** 188+ deterministic unit and integration tests.
 
-For Google Images scraping, the tool requires ChromeDriver:
-
-- **Automatic**: If not found, the tool automatically downloads a compatible version
-- **Manual Override**: Specify a custom path using `--google-chromedriver` or in the GUI
-- **Platform Detection**: Automatically detects your OS and Chrome version for compatibility
-
-## Output Structure
-
-Images are organized as follows:
-
-```text
-downloads/
-├── bing/
-│   └── search-query-slug/
-│       ├── bing_0001.jpg
-│       ├── bing_0002.png
-│       └── _downloaded_urls.txt
-├── google/
-│   └── search-query-slug/
-│       ├── google_0001.jpg
-│       ├── google_0002.webp
-│       └── _downloaded_urls.txt
-├── pexels/
-│   └── search-query-slug/
-│       ├── pexels_0001.jpg
-│       └── _downloaded_urls.txt
-└── pixabay/
-    └── search-query-slug/
-        ├── pixabay_0001.jpg
-        └── _downloaded_urls.txt
-```
-
-- Images are saved in subdirectories by engine and search query
-- Filenames can be original names (when `--keep-filenames` is used) or numbered sequences
-- `_downloaded_urls.txt` tracks downloaded URLs to prevent duplicates across runs
+---
 
 ## Troubleshooting
 
-### Common Issues
+### Bing returns fewer images than requested
+- Check the "Also search variants" option or use `--expand-queries` on the CLI to automatically fetch related variants.
+- For niche or multi-word queries, the scraper automatically falls back through noun-first reordered phrases to maintain high relevance while fulfilling quotas.
 
-#### ChromeDriver download fails
+### Google scraping is blocked ("unusual traffic / sorry")
+- Google periodically flags headless automated requests.
+- Toggle `--google-show-browser` (or uncheck Headless in the GUI) to run a visible browser window, or switch to the keyless **Bing** or **Openverse** engines.
 
-- Ensure internet connection is stable
-- Check firewall/antivirus settings
-- Manually download from [ChromeDriver Downloads](https://googlechromelabs.github.io/chromedriver/)
+### Pexels or Pixabay report authentication errors
+- Ensure your API key is valid. Keys can be obtained free of charge from [Pexels](https://www.pexels.com/api/) and [Pixabay](https://pixabay.com/api/docs/).
+- You can store them in environment variables (`export PEXELS_API_KEY="..."`) or enter them directly in the GUI settings.
 
-#### Google scraping is blocked ("sorry / unusual traffic")
+### GUI fails to start on Linux
+- Ensure Tkinter is installed on your Linux distribution:
+  ```bash
+  sudo apt-get install python3-tk
+  ```
 
-- This is Google's anti-bot protection, not a bug in the tool. The scraper detects the block page and reports a `google_blocked` error with recovery suggestions.
-- Try again later, use `--google-show-browser` (visible browser is less likely to be flagged than headless), or use `--engine bing` instead.
-
-#### Google scraping returns few results
-
-- Try adjusting resolution constraints
-- Increase `--google-max-missed` value
-- Ensure Chrome browser is up to date
-
-#### Pexels/Pixabay report a missing API key
-
-- Both engines require a free API key: [Pexels](https://www.pexels.com/api/) (200 requests/hour) and [Pixabay](https://pixabay.com/api/docs/) (100 requests/minute).
-- Pass `--pexels-api-key` / `--pixabay-api-key` or set the `PEXELS_API_KEY` / `PIXABAY_API_KEY` environment variables.
-
-#### Bing scraping fails
-
-- Check network connectivity
-- Increase `--bing-timeout` value
-- Bing may block requests from certain IP ranges
-
-#### GUI doesn't start
-
-- Ensure Python 3.8+ is installed
-- Install all requirements: `pip install -r requirements.txt`
-- On Linux, install tkinter: `sudo apt-get install python3-tk`
-
-### Getting Help
-
-- Check the [Issues](https://github.com/soficis/Google-Image-Scraper/issues) page for known problems
-- Open a new issue for bugs or feature requests
-- Include your OS, Python version, and error messages when reporting issues
+---
 
 ## Disclaimer
 
-This tool is for educational and research purposes. Please respect the terms of service of the search engines and websites you scrape. Be mindful of copyright laws and usage rights for downloaded images.
+This software is provided for educational and research purposes. Please respect the terms of service of each image provider and ensure compliance with copyright and intellectual property laws for any downloaded content.
+
+---
 
 ## License
 
-This project is licensed under the **GNU General Public License v3.0** (GPLv3).
-
-This means you are free to:
-
-- Use, copy, and distribute this software
-- Modify the source code
-- Distribute your modifications
-
-Under the condition that:
-
-- Any derivative work must also be licensed under GPLv3
-- You must include the original copyright notice and license
-- Source code must be made available when distributing
-
-See the [LICENSE](LICENSE) file for the full license text, or visit <https://www.gnu.org/licenses/gpl-3.0.html>.
+This project is licensed under the **GNU General Public License v3.0** (GPLv3). See the [LICENSE](LICENSE) file for details.
