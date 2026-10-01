@@ -41,7 +41,7 @@ class FakeResponse:
     def raise_for_status(self) -> None:
         if self.status_code >= 400:
             error = requests.HTTPError(f"{self.status_code} error")
-            error.response = self
+            error.response = self  # type: ignore[assignment]
             raise error
 
     def iter_content(self, chunk_size: int = 8192) -> Iterator[bytes]:
@@ -77,14 +77,14 @@ def _candidate() -> DownloadCandidate:
 
 
 def test_retry_on_502_then_success(tmp_path: Path) -> None:
-    session = FakeSession([FakeResponse(502), FakeResponse(200)])
+    session: Any = FakeSession([FakeResponse(502), FakeResponse(200)])
     batch = download_candidates([_candidate()], _options(tmp_path), session=session)
     assert batch.saved == 1
     assert session.calls == 2
 
 
 def test_no_retry_on_404(tmp_path: Path) -> None:
-    session = FakeSession([FakeResponse(404)])
+    session: Any = FakeSession([FakeResponse(404)])
     batch = download_candidates([_candidate()], _options(tmp_path), session=session)
     assert batch.saved == 0
     assert batch.skipped == 1
@@ -92,7 +92,7 @@ def test_no_retry_on_404(tmp_path: Path) -> None:
 
 
 def test_unsupported_scheme_skips_without_network(tmp_path: Path) -> None:
-    session = FakeSession([FakeResponse(200)])
+    session: Any = FakeSession([FakeResponse(200)])
     candidate = DownloadCandidate(url="ftp://example.com/pic.jpg", name="pic.jpg")
     batch = download_candidates([candidate], _options(tmp_path), session=session)
     assert batch.saved == 0
@@ -101,7 +101,7 @@ def test_unsupported_scheme_skips_without_network(tmp_path: Path) -> None:
 
 
 def test_oversize_declared_length_skips_without_retry(tmp_path: Path) -> None:
-    session = FakeSession(
+    session: Any = FakeSession(
         [FakeResponse(200, payload=b"x", headers={"Content-Length": str(200 * 1024 * 1024)})]
     )
     batch = download_candidates([_candidate()], _options(tmp_path), session=session)
@@ -110,7 +110,7 @@ def test_oversize_declared_length_skips_without_retry(tmp_path: Path) -> None:
 
 
 def test_retry_after_header_is_honored() -> None:
-    response = FakeResponse(429, headers={"Retry-After": "7"})
+    response: Any = FakeResponse(429, headers={"Retry-After": "7"})
     delay = retry_delay(attempt=0, response=response)
     assert 7.0 <= delay <= 7.5
 

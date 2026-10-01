@@ -4,7 +4,7 @@
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Code Quality](https://img.shields.io/badge/quality-ruff%20%7C%20mypy%20%7C%20pytest-green.svg)](tools/run_quality.py)
 
-A production-grade desktop and command-line utility for multi-engine image scraping, batch image format conversion, compression, and metadata cleaning. Built with Python, Tkinter (modern dark theme), Requests, and Selenium.
+A desktop and command-line utility for multi-engine image scraping, batch image format conversion, compression, and metadata cleaning. Built with Python, Tkinter (modern dark theme), Requests, and Selenium.
 
 ---
 
@@ -89,7 +89,26 @@ image-scraper-multitool/
 - Python 3.8 or higher
 - Google Chrome browser (only required if scraping via Google Images)
 
-### Setup
+### Quick Start (One-Click Setup & Launch)
+
+#### Windows
+1. Double-click [setup.bat](file:///v:/image-scraper-multitool/setup.bat) to automatically verify Python 3.8+, create/configure the `.venv` virtual environment, install dependencies, and optionally launch the app.
+2. For daily launches, double-click [run.bat](file:///v:/image-scraper-multitool/run.bat) (or run `run.bat --console` if you wish to see diagnostic terminal output).
+
+#### Linux / macOS
+1. Make executable and run [setup.sh](file:///v:/image-scraper-multitool/setup.sh):
+   ```bash
+   chmod +x setup.sh run.sh
+   ./setup.sh
+   ```
+2. Launch anytime with [run.sh](file:///v:/image-scraper-multitool/run.sh):
+   ```bash
+   ./run.sh
+   ```
+
+---
+
+### Manual Setup (Optional)
 
 1. **Clone the repository:**
    ```bash
@@ -97,13 +116,13 @@ image-scraper-multitool/
    cd image-scraper-multitool
    ```
 
-2. **Create and activate a virtual environment (recommended):**
+2. **Create and activate a virtual environment:**
    ```bash
-   python -m venv venv
+   python -m venv .venv
    # On Windows:
-   venv\Scripts\activate
+   .venv\Scripts\activate
    # On macOS/Linux:
-   source venv/bin/activate
+   source .venv/bin/activate
    ```
 
 3. **Install dependencies:**
